@@ -289,6 +289,7 @@ def step_convert_to_hw(model: ModelWrapper, cfg: DataflowBuildConfig):
     model = model.transform(to_hw.InferElementwiseBinaryOperation())
     model = model.transform(to_hw.InferReLUAsElementwiseMax())
     model = model.transform(to_hw.InferQuantAsFloat2Int())
+    model = model.transform(to_hw.InferUnaryAbs())
     # needed for correct dtypes for standalone eltwise
     model = model.transform(MinimizeAccumulatorWidth())
     # other typical layers for convnets / vision

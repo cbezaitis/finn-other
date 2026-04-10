@@ -810,6 +810,14 @@ class ElementwiseMinimum_hls(  # noqa: Class name does not follow
 ):
     pass
 
+# Derive a specialization to implement elementwise minimum of two inputs
+@register_custom_op
+class ElementwiseUnaryAbs_hls(  # noqa: Class name does not follow
+    # CapWords convention
+    ElementwiseBinaryOperation_hls, elementwise_binary.ElementwiseUnaryAbs
+):
+    pass
+
 
 # Derive a specialization to implement elementwise minimum of two inputs
 @register_custom_op

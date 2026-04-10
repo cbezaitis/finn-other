@@ -1073,6 +1073,41 @@ class ElementwiseFloatCast(ElementwiseBinaryOperation):
         target_dtype = DataType[self.get_nodeattr("target_dtype")]
         return target_dtype
 
+
+# TODO this is not really a binary op: it is unary
+# Derive a specialization to implement elementwise absolute value
+# name has "unary" added to not trigger the autoconversion mechanism for eltwise binary ops,
+# which would expect two inputs and cause errors when only one input is present
+@register_custom_op
+class ElementwiseUnaryAbs(ElementwiseBinaryOperation):
+    @property
+    def npy_op(self) -> np.ufunc:
+        return np.abs
+
+    # C++ operation template available as property
+    @property
+    def cpp_op(self) -> str:
+        odt_hls_name = self.out_dtype.get_hls_datatype_str()
+        return "({0} < 0 ? (%s)-({0}) : (%s){0})" % (odt_hls_name, odt_hls_name)
+
+    # RTL operation template available as property
+    @property
+    def rtl_op(self) -> str:
+        return None
+
+    def _derive_out_dtype(self, model: ModelWrapper):
+        if (self.lhs_dtype.get_canonical_name().startswith("FLOAT")
+                or self.rhs_dtype.get_canonical_name().startswith("FLOAT")):
+            # if any of the inputs are float, make the output float as well
+            # TODO better float dtype resolution? (fp16 also possible)
+            return DataType["FLOAT32"]
+        else:
+            if self.lhs_dtype.is_integer():
+                lhs_width = self.lhs_dtype.bitwidth()
+                return DataType[f"UINT{lhs_width}"]
+            else:
+                raise NotImplementedError("Abs of non-integer, non-float types not supported yet")
+
 # TODO: ElementwiseBitShift - Requires extra attribute selecting the direction
 
 
