@@ -115,6 +115,8 @@ RUN pip install pytest-metadata==1.7.0
 RUN pip install pytest-html==3.0.0
 RUN pip install pytest-html-merger==0.0.8
 RUN pip install pytest-cov==4.1.0
+# Pin anyio: newer releases import _pytest.scope (pytest 8+), incompatible with pytest 6.2.5
+RUN pip install anyio==3.7.1
 RUN pip install pyyaml==6.0.1
 
 # extra dependencies from other FINN deps
