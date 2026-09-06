@@ -240,6 +240,10 @@ class DataflowBuildConfig:
     #: flexibility, and makes it possible to have runtime-writable thresholds.
     standalone_thresholds: Optional[bool] = False
 
+    #: (Optional) Replace eligible RTL thresholding layers with their
+    #: delta-compressed implementation.
+    enable_threshold_delta_compression: Optional[bool] = False
+
     #: (Optional) JSON with fixed-point datatypes for particular tensors.
     #: When None, tensor datatypes & values are kept as-is.
     fixedpt_config: Optional[str] = None
