@@ -17,10 +17,11 @@ module delta_thresholding #(
     parameter bit BASE_SIGNED = 1,
     parameter bit STEP_SIGNED = 1,
     parameter int BIAS = 0,
+    // Same style as thresholding.sv THRESHOLDS_PATH (untyped string parameter).
     parameter BASE_PATH = "",
     parameter STEP_PATH = "",
-    parameter ERROR_PATH = ""
-    , parameter COUNT_PATH = ""
+    parameter ERROR_PATH = "",
+    parameter COUNT_PATH = ""
 ) (
     input logic clk,
     input logic rst,
@@ -54,15 +55,44 @@ module delta_thresholding #(
             $error("Delta thresholding requires C to be divisible by PE.");
             $finish;
         end
-        for (int pe = 0; pe < PE; pe++) begin
-            if (BASE_PATH != "")
-                $readmemh($sformatf("%s%0d.dat", BASE_PATH, pe), base_mem[pe]);
-            if (STEP_PATH != "")
-                $readmemh($sformatf("%s%0d.dat", STEP_PATH, pe), step_mem[pe]);
-            if (ERROR_PATH != "")
-                $readmemh($sformatf("%s%0d.dat", ERROR_PATH, pe), error_mem[pe]);
-            if (COUNT_PATH != "")
-                $readmemh($sformatf("%s%0d.dat", COUNT_PATH, pe), count_mem[pe]);
+    end
+
+    // $readmemh into a 2D slice (mem[pe]) crashes Vivado 2024.2 XSI with
+    // basic_string::_M_construct null not valid. Match thresholding.sv: load
+    // into a local 1D array, then copy into the shared memories.
+    for (genvar pe = 0; pe < PE; pe++) begin : genInit
+        logic [BW-1:0] base_init [CF];
+        logic [SW-1:0] step_init [CF];
+        logic error_init [CF * NUM_STEPS];
+        logic [CW-1:0] count_init [CF];
+
+        if (BASE_PATH != "") begin
+            initial begin
+                $readmemh($sformatf("%s%0d.dat", BASE_PATH, pe), base_init);
+                for (int i = 0; i < int'(CF); i++)
+                    base_mem[pe][i] = base_init[i];
+            end
+        end
+        if (STEP_PATH != "") begin
+            initial begin
+                $readmemh($sformatf("%s%0d.dat", STEP_PATH, pe), step_init);
+                for (int i = 0; i < int'(CF); i++)
+                    step_mem[pe][i] = step_init[i];
+            end
+        end
+        if (ERROR_PATH != "") begin
+            initial begin
+                $readmemh($sformatf("%s%0d.dat", ERROR_PATH, pe), error_init);
+                for (int i = 0; i < int'(CF * NUM_STEPS); i++)
+                    error_mem[pe][i] = error_init[i];
+            end
+        end
+        if (COUNT_PATH != "") begin
+            initial begin
+                $readmemh($sformatf("%s%0d.dat", COUNT_PATH, pe), count_init);
+                for (int i = 0; i < int'(CF); i++)
+                    count_mem[pe][i] = count_init[i];
+            end
         end
     end
 
@@ -90,12 +120,10 @@ module delta_thresholding #(
                 residual_reg <= '0;
                 step_index <= '0;
                 busy <= 1'b1;
-                if (CF > 1) begin
-                    if (fold_reg == FOLD_BITS'(CF - 1))
-                        fold_reg <= '0;
-                    else
-                        fold_reg <= fold_reg + 1'b1;
-                end
+                // Keep fold_reg stable while busy: advancing here would make the
+                // NUM_STEPS compare cycles use the *next* channel's parameters
+                // (stock tests hid this when duplicated threshold rows made CF>1
+                // folds share identical thresholds).
             end else if (busy) begin
                 for (int pe = 0; pe < PE; pe++) begin
                     logic signed [COMP_W-1:0] base_value;
@@ -146,6 +174,12 @@ module delta_thresholding #(
                 if (step_index == STEP_BITS'(NUM_STEPS - 1)) begin
                     busy <= 1'b0;
                     output_valid <= 1'b1;
+                    if (CF > 1) begin
+                        if (fold_reg == FOLD_BITS'(CF - 1))
+                            fold_reg <= '0;
+                        else
+                            fold_reg <= fold_reg + 1'b1;
+                    end
                 end else begin
                     step_index <= step_index + 1'b1;
                 end

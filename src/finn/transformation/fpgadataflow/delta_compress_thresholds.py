@@ -6,6 +6,7 @@ from onnx import helper
 from qonnx.core.datatype import DataType
 from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.base import Transformation
+from qonnx.transformation.general import GiveUniqueNodeNames
 
 
 def _smallest_dtype(values):
@@ -45,7 +46,13 @@ def _find_delta_encoding(thresholds):
 class DeltaCompressThresholds(Transformation):
     """Promote representable Thresholding_rtl nodes to DeltaThresholding_rtl."""
 
+    # Attributes overwritten after the node is created; do not copy duplicates.
+    _OVERRIDE_ATTRS = {"ActVal", "numSteps", "weightDataType"}
+
     def apply(self, model):
+        # Need stable unique node names so initializer names do not collide when
+        # SpecializeLayers left Thresholding_rtl nodes unnamed/empty.
+        model = model.transform(GiveUniqueNodeNames())
         graph = model.graph
         graph_modified = False
         node_index = 0
@@ -63,10 +70,11 @@ class DeltaCompressThresholds(Transformation):
                 continue
 
             thresholds, actval, weight_dtype = inst.get_rtl_thresholds(thresholds)
+            num_channels = inst.get_nodeattr("NumChannels")
 
             if thresholds.shape[0] == 1:
-                thresholds = np.tile(thresholds, (inst.get_nodeattr("NumChannels"), 1))
-            if thresholds.shape[0] != inst.get_nodeattr("NumChannels"):
+                thresholds = np.tile(thresholds, (num_channels, 1))
+            if thresholds.shape[0] != num_channels:
                 continue
 
             max_input = inst.get_input_datatype().max()
@@ -94,11 +102,17 @@ class DeltaCompressThresholds(Transformation):
             for row_index, encoding in enumerate(encodings):
                 errors[row_index, : len(encoding[2])] = encoding[2]
             counts = np.asarray(counts, dtype=np.int64)
+            assert bases.shape[0] == num_channels, (
+                f"{node.name}: delta base count {bases.shape[0]} != NumChannels {num_channels}"
+            )
 
-            base_name = node.name + "_base"
-            step_name = node.name + "_step"
-            error_name = node.name + "_error"
-            count_name = node.name + "_count"
+            # Unique initializer names (never collide across unnamed nodes).
+            prefix = node.name if node.name else model.make_new_valueinfo_name()
+            base_name = f"{prefix}_delta_base"
+            step_name = f"{prefix}_delta_step"
+            error_name = f"{prefix}_delta_error"
+            count_name = f"{prefix}_delta_count"
+
             model.set_initializer(base_name, bases)
             model.set_initializer(step_name, steps)
             model.set_initializer(error_name, errors)
@@ -116,6 +130,8 @@ class DeltaCompressThresholds(Transformation):
                 name=node.name,
             )
             for attribute in node.attribute:
+                if attribute.name in self._OVERRIDE_ATTRS:
+                    continue
                 new_node.attribute.append(attribute)
             new_inst = getCustomOp(new_node)
             new_inst.set_nodeattr("ActVal", int(actval))

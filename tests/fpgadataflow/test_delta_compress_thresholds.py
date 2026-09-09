@@ -124,12 +124,14 @@ def test_delta_compress_node_execution_matches_original():
 
 
 def test_delta_thresholding_rtlsim_matches_python_reference():
+    # Distinct per-channel rows so CF>1 fold indexing cannot be masked by
+    # duplicated thresholds (PE=2 => CF=2).
     thresholds = np.array(
         [
             [15, 17, 20, 22, 24, 27, 29],
             [4, 7, 9, 11, 13, 16, 18],
-            [15, 17, 20, 22, 24, 27, 29],
-            [4, 7, 9, 11, 13, 16, 18],
+            [16, 18, 21, 23, 25, 28, 30],
+            [5, 8, 10, 12, 14, 17, 19],
         ],
         dtype=np.int64,
     )

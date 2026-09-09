@@ -50,6 +50,12 @@ class DeltaThresholding_rtl(Thresholding_rtl):
 
         for pe_value in range(pe):
             channel_indices = [fold * pe + pe_value for fold in range(channel_fold)]
+            if max(channel_indices) >= len(bases):
+                raise ValueError(
+                    f"{self.onnx_node.name}: channel index {max(channel_indices)} "
+                    f"out of range for delta bases of length {len(bases)} "
+                    f"(NumChannels={channels}, PE={pe})"
+                )
             write_values(
                 os.path.join(code_gen_dir, f"{self.onnx_node.name}_base_{pe_value}.dat"),
                 bases[channel_indices],
@@ -112,10 +118,11 @@ class DeltaThresholding_rtl(Thresholding_rtl):
             "$BASE_SIGNED$": [str(int(base_dtype.signed()))],
             "$STEP_SIGNED$": [str(int(step_dtype.signed()))],
             "$BIAS$": [str(bias)],
-            "$BASE_PATH$": ['"./%s_base_"' % self.onnx_node.name],
-            "$STEP_PATH$": ['"./%s_step_"' % self.onnx_node.name],
-            "$ERROR_PATH$": ['"./%s_error_"' % self.onnx_node.name],
-            "$COUNT_PATH$": ['"./%s_count_"' % self.onnx_node.name],
+            # Absolute prefixes: XSI cwd is the rtlsim_* dir, not code_gen_dir.
+            "$BASE_PATH$": ['"%s/%s_base_"' % (code_gen_dir, self.onnx_node.name)],
+            "$STEP_PATH$": ['"%s/%s_step_"' % (code_gen_dir, self.onnx_node.name)],
+            "$ERROR_PATH$": ['"%s/%s_error_"' % (code_gen_dir, self.onnx_node.name)],
+            "$COUNT_PATH$": ['"%s/%s_count_"' % (code_gen_dir, self.onnx_node.name)],
             "$CW$": [str(_smallest_dtype(counts).bitwidth())],
         }
 
