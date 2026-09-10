@@ -407,6 +407,8 @@ def step_specialize_layers(model: ModelWrapper, cfg: DataflowBuildConfig):
         model = model.transform(ApplyConfig(cfg.specialize_layers_config_file))
     model = model.transform(SpecializeLayers(cfg._resolve_fpga_part()))
     if cfg.enable_threshold_delta_compression:
+        # Ensure unique Thresholding_rtl names before creating per-node initializers.
+        model = model.transform(GiveUniqueNodeNames())
         model = model.transform(DeltaCompressThresholds())
     model = model.transform(InferShapes())
     model = model.transform(InferDataTypes())
@@ -679,6 +681,12 @@ def step_create_stitched_ip(model: ModelWrapper, cfg: DataflowBuildConfig):
             post_synth_resources = model.analysis(post_synth_res)
             with open(report_dir + "/post_synth_resources_dcp.json", "w") as f:
                 json.dump(post_synth_resources, f, indent=2)
+            power_rpt = model.get_metadata_prop("vivado_power_rpt")
+            power_xml = model.get_metadata_prop("vivado_power_xml")
+            if power_rpt and os.path.isfile(power_rpt):
+                copy(power_rpt, report_dir + "/post_synth_power_dcp.rpt")
+            if power_xml and os.path.isfile(power_xml):
+                copy(power_xml, report_dir + "/post_synth_power_dcp.xml")
 
     if VerificationStepType.STITCHED_IP_RTLSIM in cfg._resolve_verification_steps():
         # prepare ip-stitched rtlsim
@@ -727,7 +735,7 @@ def step_measure_rtlsim_performance(model: ModelWrapper, cfg: DataflowBuildConfi
         model = model.transform(AnnotateCycles())
         perf = model.analysis(dataflow_performance)
         latency = perf["critical_path_cycles"]
-        max_iters = latency * 1.1 + 20
+        max_iters = int(latency * 1.1 + 20)
         rtlsim_perf_dict = xsi_fifosim(model, rtlsim_bs, max_iters=max_iters)
         # keep keys consistent between the Python and C++-styles
         cycles = rtlsim_perf_dict["cycles"]
@@ -835,6 +843,13 @@ def step_synthesize_bitfile(model: ModelWrapper, cfg: DataflowBuildConfig):
             )
             copy(timing_rpt, report_dir + "/post_route_timing.rpt")
 
+            power_rpt = model.get_metadata_prop("vivado_power_rpt")
+            power_xml = model.get_metadata_prop("vivado_power_xml")
+            if power_rpt and os.path.isfile(power_rpt):
+                copy(power_rpt, report_dir + "/post_route_power.rpt")
+            if power_xml and os.path.isfile(power_xml):
+                copy(power_xml, report_dir + "/post_route_power.xml")
+
         elif cfg.shell_flow_type == ShellFlowType.VITIS_ALVEO:
             model = model.transform(
                 VitisBuild(
@@ -856,6 +871,16 @@ def step_synthesize_bitfile(model: ModelWrapper, cfg: DataflowBuildConfig):
             post_synth_resources = model.analysis(post_synth_res)
             with open(report_dir + "/post_synth_resources.json", "w") as f:
                 json.dump(post_synth_resources, f, indent=2)
+
+            # Vitis TCL writes power next to synth_report.xml in the Vitis proj root
+            vivado_synth_rpt = model.get_metadata_prop("vivado_synth_rpt")
+            if vivado_synth_rpt:
+                vitis_power_rpt = os.path.join(os.path.dirname(vivado_synth_rpt), "power_report.rpt")
+                vitis_power_xml = os.path.join(os.path.dirname(vivado_synth_rpt), "power_report.xml")
+                if os.path.isfile(vitis_power_rpt):
+                    copy(vitis_power_rpt, report_dir + "/post_route_power.rpt")
+                if os.path.isfile(vitis_power_xml):
+                    copy(vitis_power_xml, report_dir + "/post_route_power.xml")
         else:
             raise Exception("Unrecognized shell_flow_type: " + str(cfg.shell_flow_type))
         print("Bitfile written into " + bitfile_dir)

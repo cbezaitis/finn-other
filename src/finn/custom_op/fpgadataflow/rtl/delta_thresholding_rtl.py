@@ -48,14 +48,44 @@ class DeltaThresholding_rtl(Thresholding_rtl):
                 for value in packed.reshape(-1):
                     parameter_file.write(str(value) + "\n")
 
+        # Flatten parameters in PE-major order. The RTL uses
+        # flat_index = pe * channel_fold + fold.
+        ordered_channels = [
+            fold * pe + pe_value
+            for pe_value in range(pe)
+            for fold in range(channel_fold)
+        ]
+        if max(ordered_channels) >= len(bases):
+            raise ValueError(
+                f"{self.onnx_node.name}: channel index {max(ordered_channels)} "
+                f"out of range for delta bases of length {len(bases)} "
+                f"(NumChannels={channels}, PE={pe})"
+            )
+        write_values(
+            os.path.join(code_gen_dir, f"{self.onnx_node.name}_base.dat"),
+            bases[ordered_channels],
+            base_dtype,
+        )
+        write_values(
+            os.path.join(code_gen_dir, f"{self.onnx_node.name}_step.dat"),
+            steps[ordered_channels],
+            step_dtype,
+        )
+        write_values(
+            os.path.join(code_gen_dir, f"{self.onnx_node.name}_error.dat"),
+            errors[ordered_channels].reshape(-1),
+            DataType["UINT1"],
+        )
+        write_values(
+            os.path.join(code_gen_dir, f"{self.onnx_node.name}_count.dat"),
+            counts[ordered_channels],
+            _smallest_dtype(counts),
+        )
+
+        # Keep the per-PE files for compatibility with existing generated
+        # artifacts and parameter-file inspection tools.
         for pe_value in range(pe):
             channel_indices = [fold * pe + pe_value for fold in range(channel_fold)]
-            if max(channel_indices) >= len(bases):
-                raise ValueError(
-                    f"{self.onnx_node.name}: channel index {max(channel_indices)} "
-                    f"out of range for delta bases of length {len(bases)} "
-                    f"(NumChannels={channels}, PE={pe})"
-                )
             write_values(
                 os.path.join(code_gen_dir, f"{self.onnx_node.name}_base_{pe_value}.dat"),
                 bases[channel_indices],
@@ -118,11 +148,11 @@ class DeltaThresholding_rtl(Thresholding_rtl):
             "$BASE_SIGNED$": [str(int(base_dtype.signed()))],
             "$STEP_SIGNED$": [str(int(step_dtype.signed()))],
             "$BIAS$": [str(bias)],
-            # Absolute prefixes: XSI cwd is the rtlsim_* dir, not code_gen_dir.
-            "$BASE_PATH$": ['"%s/%s_base_"' % (code_gen_dir, self.onnx_node.name)],
-            "$STEP_PATH$": ['"%s/%s_step_"' % (code_gen_dir, self.onnx_node.name)],
-            "$ERROR_PATH$": ['"%s/%s_error_"' % (code_gen_dir, self.onnx_node.name)],
-            "$COUNT_PATH$": ['"%s/%s_count_"' % (code_gen_dir, self.onnx_node.name)],
+            # Absolute paths: XSI cwd is the rtlsim_* dir, not code_gen_dir.
+            "$BASE_PATH$": ['"%s/%s_base.dat"' % (code_gen_dir, self.onnx_node.name)],
+            "$STEP_PATH$": ['"%s/%s_step.dat"' % (code_gen_dir, self.onnx_node.name)],
+            "$ERROR_PATH$": ['"%s/%s_error.dat"' % (code_gen_dir, self.onnx_node.name)],
+            "$COUNT_PATH$": ['"%s/%s_count.dat"' % (code_gen_dir, self.onnx_node.name)],
             "$CW$": [str(_smallest_dtype(counts).bitwidth())],
         }
 
@@ -140,11 +170,9 @@ class DeltaThresholding_rtl(Thresholding_rtl):
 
     def get_all_meminit_filenames(self, abspath=False):
         path = self.get_nodeattr("code_gen_dir_ipgen") if abspath else "."
-        pe = self.get_nodeattr("PE")
         return [
-            os.path.join(path, f"{self.onnx_node.name}_{kind}_{pe_value}.dat")
+            os.path.join(path, f"{self.onnx_node.name}_{kind}.dat")
             for kind in ("base", "step", "error", "count")
-            for pe_value in range(pe)
         ]
 
     def generate_hdl(self, model, fpgapart, clk):

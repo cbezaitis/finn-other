@@ -36,11 +36,15 @@ module delta_thresholding #(
     localparam int unsigned FOLD_BITS = CF <= 1 ? 1 : $clog2(CF);
     localparam int unsigned STEP_BITS = NUM_STEPS <= 1 ? 1 : $clog2(NUM_STEPS);
     localparam int unsigned COMP_W = (WT > WI ? WT : WI) + 1;
+    localparam int unsigned PARAM_COUNT = PE * CF;
 
-    logic [BW-1:0] base_mem [PE][CF];
-    logic [SW-1:0] step_mem [PE][CF];
-    logic error_mem [PE][CF * NUM_STEPS];
-    logic [CW-1:0] count_mem [PE][CF];
+    // PE-major flat memories are directly initialized by $readmemh. Vivado
+    // synthesis does not preserve an initial copy from generated local arrays
+    // into a shared multidimensional memory, leaving the latter undriven.
+    (* rom_style = "distributed" *) logic [BW-1:0] base_mem [PARAM_COUNT];
+    (* rom_style = "distributed" *) logic [SW-1:0] step_mem [PARAM_COUNT];
+    (* rom_style = "distributed" *) logic [0:0] error_mem [PARAM_COUNT * NUM_STEPS];
+    (* rom_style = "distributed" *) logic [CW-1:0] count_mem [PARAM_COUNT];
     logic [PE-1:0][WI-1:0] input_reg;
     logic [PE-1:0][O_BITS-1:0] count_reg;
     logic [PE-1:0][EW-1:0] residual_reg;
@@ -55,45 +59,14 @@ module delta_thresholding #(
             $error("Delta thresholding requires C to be divisible by PE.");
             $finish;
         end
-    end
-
-    // $readmemh into a 2D slice (mem[pe]) crashes Vivado 2024.2 XSI with
-    // basic_string::_M_construct null not valid. Match thresholding.sv: load
-    // into a local 1D array, then copy into the shared memories.
-    for (genvar pe = 0; pe < PE; pe++) begin : genInit
-        logic [BW-1:0] base_init [CF];
-        logic [SW-1:0] step_init [CF];
-        logic error_init [CF * NUM_STEPS];
-        logic [CW-1:0] count_init [CF];
-
-        if (BASE_PATH != "") begin
-            initial begin
-                $readmemh($sformatf("%s%0d.dat", BASE_PATH, pe), base_init);
-                for (int i = 0; i < int'(CF); i++)
-                    base_mem[pe][i] = base_init[i];
-            end
-        end
-        if (STEP_PATH != "") begin
-            initial begin
-                $readmemh($sformatf("%s%0d.dat", STEP_PATH, pe), step_init);
-                for (int i = 0; i < int'(CF); i++)
-                    step_mem[pe][i] = step_init[i];
-            end
-        end
-        if (ERROR_PATH != "") begin
-            initial begin
-                $readmemh($sformatf("%s%0d.dat", ERROR_PATH, pe), error_init);
-                for (int i = 0; i < int'(CF * NUM_STEPS); i++)
-                    error_mem[pe][i] = error_init[i];
-            end
-        end
-        if (COUNT_PATH != "") begin
-            initial begin
-                $readmemh($sformatf("%s%0d.dat", COUNT_PATH, pe), count_init);
-                for (int i = 0; i < int'(CF); i++)
-                    count_mem[pe][i] = count_init[i];
-            end
-        end
+        if (BASE_PATH != "")
+            $readmemh(BASE_PATH, base_mem);
+        if (STEP_PATH != "")
+            $readmemh(STEP_PATH, step_mem);
+        if (ERROR_PATH != "")
+            $readmemh(ERROR_PATH, error_mem);
+        if (COUNT_PATH != "")
+            $readmemh(COUNT_PATH, count_mem);
     end
 
     assign irdy = !busy && (!output_valid || ordy);
@@ -134,26 +107,30 @@ module delta_thresholding #(
                     logic comparison;
                     logic [CW-1:0] count_value;
                     integer error_index;
+                    integer parameter_index;
                     integer output_value;
+                    parameter_index = pe * CF + int'(fold_reg);
                     if (BASE_SIGNED)
                         base_value = $signed(
-                            {{(COMP_W-BW){base_mem[pe][fold_reg][BW-1]}}, base_mem[pe][fold_reg]}
+                            {{(COMP_W-BW){base_mem[parameter_index][BW-1]}},
+                             base_mem[parameter_index]}
                         );
                     else
                         base_value = $signed(
-                            {{(COMP_W-BW){1'b0}}, base_mem[pe][fold_reg]}
+                            {{(COMP_W-BW){1'b0}}, base_mem[parameter_index]}
                         );
                     if (STEP_SIGNED)
                         step_value = $signed(
-                            {{(COMP_W-SW){step_mem[pe][fold_reg][SW-1]}}, step_mem[pe][fold_reg]}
+                            {{(COMP_W-SW){step_mem[parameter_index][SW-1]}},
+                             step_mem[parameter_index]}
                         );
                     else
                         step_value = $signed(
-                            {{(COMP_W-SW){1'b0}}, step_mem[pe][fold_reg]}
+                            {{(COMP_W-SW){1'b0}}, step_mem[parameter_index]}
                         );
-                    error_index = int'(fold_reg) * NUM_STEPS + int'(step_index);
-                    residual_value = residual_reg[pe] + error_mem[pe][error_index];
-                    count_value = count_mem[pe][fold_reg];
+                    error_index = parameter_index * NUM_STEPS + int'(step_index);
+                    residual_value = residual_reg[pe] + error_mem[error_index][0];
+                    count_value = count_mem[parameter_index];
                     threshold_value = base_value
                         + step_value * $signed({1'b0, step_index})
                         + residual_value;

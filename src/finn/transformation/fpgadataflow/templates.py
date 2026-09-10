@@ -197,6 +197,10 @@ wait_on_run [get_runs impl_1]
 # generate synthesis report
 open_run impl_1
 report_utilization -hierarchical -hierarchical_depth 4 -file synth_report.xml -format xml
+# Power uses design clocks (PS PL clock FREQ_MHZ / FCLK from $FREQ_MHZ above).
+# Default switching activity unless a SAIF/VCD is provided — treat as estimate.
+report_power -file power_report.rpt
+report_power -file power_report.xml -format xml
 close_project
 """
 
@@ -204,4 +208,6 @@ vitis_gen_xml_report_tcl_template = """
 open_project $VITIS_PROJ_PATH$/_x/link/vivado/vpl/prj/prj.xpr
 open_run impl_1
 report_utilization -hierarchical -hierarchical_depth 5 -file $VITIS_PROJ_PATH$/synth_report.xml -format xml
+report_power -file $VITIS_PROJ_PATH$/power_report.rpt
+report_power -file $VITIS_PROJ_PATH$/power_report.xml -format xml
 """

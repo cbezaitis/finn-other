@@ -286,6 +286,12 @@ class MakeZYNQProject(Transformation):
         # filename for the synth utilization report
         synth_report_filename = vivado_pynq_proj_dir + "/synth_report.xml"
         model.set_metadata_prop("vivado_synth_rpt", synth_report_filename)
+        power_rpt = vivado_pynq_proj_dir + "/power_report.rpt"
+        power_xml = vivado_pynq_proj_dir + "/power_report.xml"
+        if os.path.isfile(power_rpt):
+            model.set_metadata_prop("vivado_power_rpt", power_rpt)
+        if os.path.isfile(power_xml):
+            model.set_metadata_prop("vivado_power_xml", power_xml)
         return (model, False)
 
 

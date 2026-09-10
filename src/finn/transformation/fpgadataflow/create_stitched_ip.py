@@ -451,9 +451,24 @@ class CreateStitchedIP(Transformation):
                 "report_utilization -hierarchical -hierarchical_depth 5 "
                 "-file %s_partition_util.xml -format xml" % block_name
             )
+            # FREQ_HZ already set on ap_clk from self.clk_ns; report_power uses that.
+            tcl.append(
+                "report_power -file %s_partition_power.rpt" % block_name
+            )
+            tcl.append(
+                "report_power -file %s_partition_power.xml -format xml" % block_name
+            )
             model.set_metadata_prop(
                 "vivado_synth_rpt",
                 "%s/%s_partition_util.xml" % (vivado_stitch_proj_dir, block_name),
+            )
+            model.set_metadata_prop(
+                "vivado_power_rpt",
+                "%s/%s_partition_power.rpt" % (vivado_stitch_proj_dir, block_name),
+            )
+            model.set_metadata_prop(
+                "vivado_power_xml",
+                "%s/%s_partition_power.xml" % (vivado_stitch_proj_dir, block_name),
             )
         # export block design itself as an IP core
         block_vendor = "xilinx_finn"
